@@ -35,6 +35,7 @@ class NewRoom(BaseModel):
     deck: str = "fibonacci"
     password: str = ""
     ownerOnlyTasks: bool = False
+    ownerOnlyReveal: bool = False
 
 
 @app.get("/")
@@ -50,7 +51,7 @@ async def config():
 
 @app.post("/api/rooms")
 async def new_room(body: NewRoom):
-    return {"id": create_room(body.clientId, body.deck, body.password, body.ownerOnlyTasks).id}
+    return {"id": create_room(body.clientId, body.deck, body.password, body.ownerOnlyTasks, body.ownerOnlyReveal).id}
 
 
 async def toast(ws: WebSocket, text: str, level: str = "info"):
@@ -84,7 +85,7 @@ async def ws_endpoint(ws: WebSocket, room_id: str):
             user.vote = None
         user.conns.add(ws)
         room.users[cid] = user
-        await ws.send_json({"type": "joined", "owner": cid == room.owner_cid})
+        await ws.send_json({"type": "joined", "owner": room.is_host(cid)})
         await room.broadcast()
 
         while True:
@@ -120,7 +121,7 @@ async def load_details(room):
 
 async def handle(room, user, ws, m):
     t = m.get("type")
-    is_owner = user.cid == room.owner_cid
+    is_owner = room.is_host(user.cid)
 
     if t == "vote":
         v = m.get("value")
@@ -128,6 +129,8 @@ async def handle(room, user, ws, m):
     elif t == "reveal":
         if room.revealed or room.counting:
             return
+        if room.owner_reveal and not is_owner:
+            return await toast(ws, "Only a host can reveal cards", "error")
         room.counting = True
         ms = random.randint(2000, 2500)  # a different suspense every time
         await room.send_all({"type": "countdown", "n": 3, "ms": ms})
@@ -149,7 +152,7 @@ async def handle(room, user, ws, m):
             user.vote = None
     elif t == "task":
         if room.owner_tasks and not is_owner:
-            return await toast(ws, "Only the room owner can switch tasks", "error")
+            return await toast(ws, "Only a host can switch tasks", "error")
         found = next((x for x in room.tasks if x["key"] == m.get("key")), None)
         if not found:
             return
@@ -157,6 +160,17 @@ async def handle(room, user, ws, m):
         room.new_round()
         await room.broadcast()
         await load_details(room)
+    elif t == "make_host" and is_owner:
+        target = next((u for u in room.users.values() if u.pub == m.get("to")), None)
+        if target:
+            room.hosts.add(target.cid)
+    elif t == "remove_host" and is_owner:
+        target = next((u for u in room.users.values() if u.pub == m.get("to")), None)
+        if target and target.cid != room.owner_cid:  # the room creator always stays a host
+            room.hosts.discard(target.cid)
+    elif t == "set_options" and is_owner:
+        room.owner_tasks = bool(m.get("ownerOnlyTasks"))
+        room.owner_reveal = bool(m.get("ownerOnlyReveal"))
     elif t == "set_password" and is_owner:
         room.set_password(str(m.get("password", ""))[:100])
         await toast(ws, "Password set" if room.pw_hash else "Password removed", "ok")

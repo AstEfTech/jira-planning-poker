@@ -343,3 +343,20 @@ select option { background: var(--panel); color: var(--text); }
 @media (max-width: 400px) {
   .logo { font-size: 16px; }
 }
+
+/* room settings dropdown (opens on hover / focus) */
+.menu { position: relative; }
+.menu-pop { display: none; position: absolute; left: 0; top: 100%; padding-top: 6px; z-index: 50; }
+.menu:hover .menu-pop, .menu:focus-within .menu-pop { display: block; }
+.menu-body { display: flex; flex-direction: column; gap: 12px; width: 280px; padding: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); text-align: left; }
+.menu-body label small { font-weight: 400; opacity: .8; }
+.pwrow { display: flex; gap: 6px; }
+.pwrow input { flex: 1; min-width: 0; }
+.optsbody { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; }
+.menu-sub { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+.hostlist { list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; font-size: 14px; }
+.hostlist li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; }
+.hostlist li > :not(span) { flex: none; }
+.hostlist li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hostlist button { padding: 3px 8px; font-size: 12px; }
+.hostlist small { color: var(--ok); margin-left: auto; }

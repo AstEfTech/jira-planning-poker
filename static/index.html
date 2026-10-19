@@ -9,8 +9,23 @@
 <body>
 <header>
   <div class="hgroup left">
+    <div id="roomMenu" class="menu" hidden>
+      <button id="roomMenuBtn" class="ghost" type="button">⚙ Room settings ▾</button>
+      <div class="menu-pop">
+        <div class="menu-body">
+          <label>Password <small>(empty = none)</small>
+            <span class="pwrow"><input id="roomPw" type="password" autocomplete="new-password" placeholder="No password"><button id="roomPwSave" type="button">Set</button></span>
+          </label>
+          <label class="check"><input id="optTasks" type="checkbox"> Only host can switch tasks</label>
+          <label class="check"><input id="optReveal" type="checkbox"> Only host can reveal cards</label>
+          <div>
+            <div class="menu-sub">Hosts</div>
+            <ul id="hostList" class="hostlist"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
     <button id="copyBtn" class="ghost" hidden>🔗 Invite link</button>
-    <button id="pwBtn" class="ghost" hidden>🔒 Room password</button>
   </div>
   <a class="logo" href="/">🃏 Planning Poker</a>
   <div class="hgroup right">
@@ -41,7 +56,13 @@
         <label><span>Room password <small>(optional)</small></span>
           <input id="landPw" type="password" autocomplete="new-password" placeholder="Leave empty for an open room">
         </label>
-        <label class="check"><input id="landOwn" type="checkbox"> Only I can switch tasks</label>
+        <details class="fold roomopts">
+          <summary>Room settings</summary>
+          <div class="foldbody optsbody">
+            <label class="check"><input id="landOwn" type="checkbox"> Only host can switch tasks</label>
+            <label class="check"><input id="landRev" type="checkbox"> Only host can reveal cards</label>
+          </div>
+        </details>
         <button id="createBtn" class="primary">Create room →</button>
       </div>
     </div>

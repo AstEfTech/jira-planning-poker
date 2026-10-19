@@ -48,10 +48,15 @@ class Room:
     extra: list = field(default_factory=lambda: ["assignee"])
     counting: bool = False
     owner_tasks: bool = False  # only the owner may switch the current task
+    owner_reveal: bool = False  # only the owner may reveal the cards
+    hosts: set = field(default_factory=set)  # cids allowed to act as host (the owner is always one)
     users: dict = field(default_factory=dict)
     salt: bytes = b""
     pw_hash: bytes | None = None
     touched: float = field(default_factory=time.time)
+
+    def is_host(self, cid: str) -> bool:
+        return cid == self.owner_cid or cid in self.hosts
 
     def set_password(self, password: str):
         if password:
@@ -83,11 +88,13 @@ class Room:
             "field": self.est_field,
             "extra": self.extra,
             "ownerOnlyTasks": self.owner_tasks,
+            "ownerOnlyReveal": self.owner_reveal,
             "users": [
                 {
                     "id": u.pub,
                     "name": u.name,
                     "observer": u.observer,
+                    "host": self.is_host(u.cid),
                     "online": bool(u.conns),
                     "voted": u.vote is not None,
                     "vote": u.vote if self.revealed else None,
@@ -127,8 +134,8 @@ class Room:
 rooms: dict[str, Room] = {}
 
 
-def create_room(owner_cid: str, deck: str, password: str, owner_tasks: bool = False) -> Room:
-    room = Room(id=str(uuid.uuid4()), owner_cid=owner_cid, deck=deck if deck in DECKS else "fibonacci", owner_tasks=owner_tasks)
+def create_room(owner_cid: str, deck: str, password: str, owner_tasks: bool = False, owner_reveal: bool = False) -> Room:
+    room = Room(id=str(uuid.uuid4()), owner_cid=owner_cid, deck=deck if deck in DECKS else "fibonacci", owner_tasks=owner_tasks, owner_reveal=owner_reveal)
     room.set_password(password)
     rooms[room.id] = room
     return room

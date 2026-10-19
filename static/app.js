@@ -36,13 +36,13 @@ function initLanding() {
   show('landing');
   $('#deckSel').value = config.decks[0];
   combo($('#deckSel'), () => config.decks.map(d => ({ id: d, label: d })), it => { $('#deckSel').value = it.id; });
-  $('#createBtn').onclick = () => createRoom($('#deckSel').value, $('#landPw').value, $('#landOwn').checked);
+  $('#createBtn').onclick = () => createRoom($('#deckSel').value, $('#landPw').value, $('#landOwn').checked, $('#landRev').checked);
 }
 
-async function createRoom(deck, password, ownerOnlyTasks = false) {
+async function createRoom(deck, password, ownerOnlyTasks = false, ownerOnlyReveal = false) {
   const r = await fetch('/api/rooms', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, deck, password, ownerOnlyTasks }),
+    body: JSON.stringify({ clientId, deck, password, ownerOnlyTasks, ownerOnlyReveal }),
   });
   const { id } = await r.json();
   if (password) store.set('pw:' + id, password);
@@ -51,7 +51,7 @@ async function createRoom(deck, password, ownerOnlyTasks = false) {
 
 /* ---------- room ---------- */
 let ws, S = null, myVote = null, me = null, isOwner = false, joined = false, wantJoin = false;
-let lastRoundKey = '', prevRevealed = false, flipUntil = 0, tableSig = '';
+let hostSig = '', lastRoundKey = '', prevRevealed = false, flipUntil = 0, tableSig = '';
 
 function initRoom() {
   $('#nameIn').value = store.get('name') || '';
@@ -98,13 +98,10 @@ function onMsg(msg) {
       $('#pwIn').focus();
     }
   } else if (msg.type === 'joined') {
-    joined = true; isOwner = msg.owner; show('room');
+    joined = true; show('room');
     store.set('pw:' + roomId, $('#pwIn').value);
     $('#copyBtn').hidden = false; $('#obsBtn').hidden = false; $('#nameBtn').hidden = false;
-    $('#pwBtn').hidden = !isOwner;
     $('#jira').hidden = !config.jira;
-    $('#cfgBox').hidden = !(isOwner && config.jira);
-    $('#loadBtn').hidden = !(isOwner && config.jira);
   } else if (msg.type === 'jira_meta') {
     projects = msg.projects;
     const key = (S && S.project) || store.get('jproject');
@@ -148,12 +145,16 @@ $('#nameBtn').onclick = async () => {
   $('#nameIn').value = n.trim().slice(0, 30);
   doJoin();
 };
-$('#pwBtn').onclick = async () => {
-  const p = await ask('New room password (leave empty to remove)', '', 'password');
-  if (p === null) return;
+function savePassword() {
+  const p = $('#roomPw').value;
   send({ type: 'set_password', password: p });
   store.set('pw:' + roomId, p); $('#pwIn').value = p;
-};
+}
+$('#roomPwSave').onclick = savePassword;
+$('#roomPw').onkeydown = e => { if (e.key === 'Enter') savePassword(); };
+$('#hostList').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) send({ type: b.dataset.act, to: b.dataset.id }); };
+const sendOptions = () => send({ type: 'set_options', ownerOnlyTasks: $('#optTasks').checked, ownerOnlyReveal: $('#optReveal').checked });
+$('#optTasks').onchange = $('#optReveal').onchange = sendOptions;
 $('#obsBtn').onclick = () => { $('#obsIn').checked = !$('#obsIn').checked; store.set('obs', $('#obsIn').checked ? '1' : '0'); send({ type: 'observer', value: $('#obsIn').checked }); };
 $('#revealBtn').onclick = () => send({ type: 'reveal' });
 let counting = false;
@@ -342,6 +343,13 @@ function stats() {
 
 /* ---------- render ---------- */
 function render() {
+  const mine = S.users.find(u => u.id === me);
+  isOwner = !!(mine && mine.host);
+  $('#roomMenu').hidden = !isOwner;
+  $('#cfgBox').hidden = !(isOwner && config.jira);
+  $('#loadBtn').hidden = !(isOwner && config.jira);
+  const hl = S.users.map(u => `<li><span>${esc(u.name)}${u.id === me ? ' (you)' : ''}</span>${u.host ? `<small>host</small>${u.id === S.ownerId ? '' : `<button type="button" data-act="remove_host" data-id="${esc(u.id)}">Remove host</button>`}` : `<button type="button" data-act="make_host" data-id="${esc(u.id)}">Make host</button>`}</li>`).join('');
+  if (hl !== hostSig) { hostSig = hl; $('#hostList').innerHTML = hl; }
   // task
   const t = S.task;
   $('#taskView').innerHTML = !t ? '<small>No task selected — pick one from the Jira list</small>'
@@ -387,7 +395,9 @@ function render() {
   if (sig !== tableSig) { tableSig = sig; $('#table').innerHTML = tableHtml; }
 
   const voters = S.users.filter(u => !u.observer);
-  $('#revealBtn').disabled = S.revealed || counting;
+  $('#revealBtn').disabled = S.revealed || counting || (S.ownerOnlyReveal && !isOwner);
+  $('#revealBtn').title = S.ownerOnlyReveal && !isOwner ? 'Only a host can reveal cards' : '';
+  $('#optTasks').checked = !!S.ownerOnlyTasks; $('#optReveal').checked = !!S.ownerOnlyReveal;
   $('#revealBtn').textContent = `Reveal cards (${voters.filter(u => u.voted).length}/${voters.length})`;
   $('#obsBtn').classList.toggle('on', $('#obsIn').checked);
 
@@ -420,13 +430,13 @@ function render() {
   if (isOwner && projects.length && !projKey && (S.project || store.get('jproject'))) pickProject(S.project || store.get('jproject'), true);
   if (!$('#jqlIn').value && document.activeElement !== $('#jqlIn')) $('#jqlIn').value = S.jql || store.get('jql') || (projKey ? defaultJql(projKey) : '');
   if (!estId && document.activeElement !== $('#fieldIn')) setEst(S.field || store.get('jfield') || '');
-  $('#taskList').innerHTML = (!S.tasks.length && !isOwner ? '<li class="empty">The room owner has not loaded any issues yet</li>' : '') + S.tasks.map(x => `
+  $('#taskList').innerHTML = (!S.tasks.length && !isOwner ? '<li class="empty">No host has loaded any issues yet</li>' : '') + S.tasks.map(x => `
     <li data-k="${esc(x.key)}" class="${t && t.key === x.key ? 'cur' : ''}">
       ${x.estimate != null ? `<span class="est">${esc(x.estimate)}</span>` : ''}
       <span class="k">${esc(x.key)}</span> <span class="st">${esc(x.status)}</span><br>${esc(x.summary)}
     </li>`).join('');
   const locked = !!S.ownerOnlyTasks && !isOwner;
   $('#taskList').classList.toggle('locked', locked);
-  $('#taskList').title = locked ? 'Only the room owner can switch tasks' : '';
+  $('#taskList').title = locked ? 'Only a host can switch tasks' : '';
   $('#taskList').querySelectorAll('li[data-k]').forEach(li => li.onclick = () => { if (!locked) send({ type: 'task', key: li.dataset.k }); });
 }
