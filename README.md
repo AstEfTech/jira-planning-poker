@@ -4,7 +4,16 @@ FastAPI + WebSocket, vanilla JS front (no build step). Rooms live in memory (a r
 
 ## Run
 
-Needs Python 3. Run from the project root; the commands are the same on every OS.
+Needs Python 3. Run from the project root. Only the activation line differs by OS.
+
+```
+python -m venv .venv
+```
+
+Activate the venv:
+
+- Linux / macOS: `source .venv/bin/activate`
+- Windows: `.venv\Scripts\activate.bat`
 
 ```
 python -m pip install -r requirements.txt
@@ -13,7 +22,7 @@ python -m uvicorn app.main:app --env-file .env --port 8000
 
 Optional, for Jira: copy `.env.example` to `.env` and fill in the credentials.
 
-(If `python` isn't found, try `python3`, or `py` on Windows.)
+(If `python` isn't found, try `python3`, or `py` on Windows. The venv is created and the dependencies installed once; next time just activate and start the server.)
 
 Open http://localhost:8000, create a room, share the `/<uuid>` link. Stop with `Ctrl+C`.
 
