@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning Poker</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="hgroup left">
+    <button id="copyBtn" class="ghost" hidden>🔗 Invite link</button>
+    <button id="pwBtn" class="ghost" hidden>🔒 Room password</button>
+  </div>
+  <a class="logo" href="/">🃏 Planning Poker</a>
+  <div class="hgroup right">
+    <button id="nameBtn" class="ghost" title="Change name" hidden></button>
+    <button id="obsBtn" class="ghost" hidden>👁 Observer</button>
+    <button id="themeBtn" class="ghost" title="Toggle theme">🌓</button>
+  </div>
+</header>
+
+<main>
+  <!-- landing -->
+  <section id="landing" hidden>
+    <div class="hero">
+      <div class="hero-text">
+        <span class="eyebrow">Planning poker for agile teams</span>
+        <h1>Estimate together,<br><span class="grad">without the friction.</span></h1>
+        <p class="lead">Spin up a room, share the link and vote in real time. No sign-up, no installs — and it plugs straight into Jira.</p>
+        <ul class="chips">
+          <li>⚡ Instant rooms</li><li>🔗 Join by link</li><li>🧩 Jira sync</li><li>👁 Observers</li><li>🌗 Dark mode</li>
+        </ul>
+        <div class="fan" aria-hidden="true"><div>3</div><div>5</div><div>8</div><div>13</div></div>
+      </div>
+      <div class="hero-card panel">
+        <h2>New planning poker room</h2>
+        <label>Deck
+          <input id="deckSel" class="sel" readonly>
+        </label>
+        <label><span>Room password <small>(optional)</small></span>
+          <input id="landPw" type="password" autocomplete="new-password" placeholder="Leave empty for an open room">
+        </label>
+        <label class="check"><input id="landOwn" type="checkbox"> Only I can switch tasks</label>
+        <button id="createBtn" class="primary">Create room →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- join -->
+  <section id="join" class="panel narrow" hidden>
+    <h1>Join room</h1>
+    <p id="joinMsg" class="err"></p>
+    <label>Your name
+      <input id="nameIn" maxlength="30" placeholder="Enter your name">
+    </label>
+    <button id="newRoomBtn" class="primary" hidden>Create new room</button>
+    <label id="pwRow" hidden>Room password
+      <input id="pwIn" type="password">
+    </label>
+    <label class="check"><input id="obsIn" type="checkbox"> Join as observer (no voting)</label>
+    <button id="joinBtn" class="primary">Join</button>
+  </section>
+
+  <!-- room -->
+  <section id="room" hidden>
+    <div class="layout">
+      <div class="col">
+        <div class="panel">
+          <div class="taskhead">
+            <div id="taskView" class="task"></div>
+            <div id="reporter" class="reporter" hidden></div>
+          </div>
+          <div id="taskInfo" class="taskinfo" hidden>
+            <details id="descBox" class="fold">
+              <summary id="descSum">More</summary>
+              <div class="foldcols">
+                <div id="descBody" class="foldbody"></div>
+                <div id="extraBox" class="extrabox">
+                  <dl id="extraBody" class="extra"></dl>
+                  <div id="addField" class="addfield" hidden>
+                    <input id="extraIn" placeholder="＋ Add a field…" autocomplete="off" spellcheck="false">
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+          <div id="pushBox" class="row push" hidden>
+            <div class="pill">
+              <input id="pushVal" class="est-in" placeholder="Estimate" autocomplete="off" inputmode="decimal">
+              <button id="pushBtn" class="primary">Save to Jira</button>
+            </div>
+            <span id="pushLbl"></span>
+          </div>
+        </div>
+
+        <div class="tablewrap">
+          <div id="table" class="table"></div>
+          <div id="countdown" hidden></div>
+        </div>
+        <div id="emojiPop" hidden></div>
+
+        <div class="row center">
+          <button id="revealBtn" class="primary">Reveal cards</button>
+          <button id="resetBtn">New round</button>
+        </div>
+        <div id="results" class="results"></div>
+      </div>
+
+      <aside id="jira" class="panel" hidden>
+        <div class="jhead"><h3>Jira</h3></div>
+        <div id="cfgBox" class="cfgbox" hidden>
+        <button id="cfgToggle" type="button" class="cfghead" title="Show / hide settings">⚙ Settings ▾</button>
+        <div id="jiraCfg" class="form">
+          <label>Project
+            <input id="projectSel" placeholder="Pick or type a project…" autocomplete="off" spellcheck="false">
+          </label>
+          <label>JQL
+            <textarea id="jqlIn" rows="3" placeholder="project = ABC AND resolution = Unresolved ORDER BY Rank"></textarea>
+          </label>
+          <label>Estimate field
+            <input id="fieldIn" placeholder="Story Points…" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        </div>
+        <button id="loadBtn" class="primary" hidden>Load tasks</button>
+        <ul id="taskList" class="tasks"></ul>
+      </aside>
+    </div>
+
+    <div class="deckbar">
+      <div id="deck" class="deck"></div>
+      <div id="obsHint" class="hint" hidden>👁 You are observing — switch off Observer to vote</div>
+    </div>
+  </section>
+</main>
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <label><span id="dlgTitle"></span>
+      <input id="dlgIn" autocomplete="off">
+    </label>
+    <div class="dlgbtns">
+      <button type="button" id="dlgCancel">Cancel</button>
+      <button class="primary" id="dlgOk">OK</button>
+    </div>
+  </form>
+</dialog>
+<div id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
