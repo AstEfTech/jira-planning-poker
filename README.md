@@ -4,14 +4,18 @@ FastAPI + WebSocket, vanilla JS front (no build step). Rooms live in memory (a r
 
 ## Run
 
+Needs Python 3. Run from the project root; the commands are the same on every OS.
+
 ```
-python -m venv .venv && .venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env      # fill in Jira credentials (optional)
-uvicorn app.main:app --env-file .env --port 8000
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --env-file .env --port 8000
 ```
 
-Open http://localhost:8000, create a room, share the `/<uuid>` link.
+Optional, for Jira: copy `.env.example` to `.env` and fill in the credentials.
+
+(If `python` isn't found, try `python3`, or `py` on Windows.)
+
+Open http://localhost:8000, create a room, share the `/<uuid>` link. Stop with `Ctrl+C`.
 
 ## Features
 - Room id is a UUID; join by link, only a name is required; optional room password (owner can change it via 🔒).
