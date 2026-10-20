@@ -27,22 +27,57 @@ function toast(text, level = 'info') {
 
 const m = location.pathname.match(/^\/([0-9a-f-]{36})\/?$/i);
 const roomId = m && m[1].toLowerCase();
+const badPath = !roomId && location.pathname.replace(/\/+$/, '') !== '';  // anything other than "/" or a room id
 let config = { decks: [], jira: false };
 
-fetch('/api/config').then(r => r.json()).then(c => { config = c; roomId ? initRoom() : initLanding(); });
+fetch('/api/config').then(r => r.json()).then(c => { config = c; badPath ? roomNotFound() : roomId ? initRoom() : initLanding(); });
 
 /* ---------- landing ---------- */
 function initLanding() {
   show('landing');
-  $('#deckSel').value = config.decks[0];
-  combo($('#deckSel'), () => config.decks.map(d => ({ id: d, label: d })), it => { $('#deckSel').value = it.id; });
-  $('#createBtn').onclick = () => createRoom($('#deckSel').value, $('#landPw').value, $('#landOwn').checked, $('#landRev').checked);
+  let deck = config.decks[0];
+  $('#deckSel').value = deckLabel(deck);
+  combo($('#deckSel'), () => config.decks.map(d => ({ id: d, label: deckLabel(d) })), it => { deck = it.id; $('#deckSel').value = it.label; });
+  if (config.jira) {
+    $('#landProjRow').hidden = false;
+    const proj = $('#projectSel');
+    let key = '';
+    const resolve = projectCombo(proj, it => { key = it.id; });
+    proj.addEventListener('input', () => { key = resolve(proj.value); });
+    $('#createBtn').onclick = () => createRoom(deck, $('#landPw').value, $('#landOwn').checked, $('#landRev').checked, key);
+  } else {
+    $('#createBtn').onclick = () => createRoom(deck, $('#landPw').value, $('#landOwn').checked, $('#landRev').checked);
+  }
 }
+/* project picker shared by the landing page and the room settings; returns a resolver for typed text (key / name → key, else '') */
+let projLoading = false, projLoaded = false;
+function projectCombo(input, onPick) {
+  const items = () => { items.loading = projLoading; return projects.map(p => ({ id: p.key, label: projLabel(p) })); };
+  items.empty = 'No projects found';
+  combo(input, items, it => { input.value = it.label; onPick(it); });
+  // projects are fetched from Jira only when a field is first opened
+  const load = () => {
+    if (projLoaded || projLoading) return;
+    projLoading = true; input._busy(true);
+    fetch('/api/projects').then(r => r.ok ? r.json() : Promise.reject()).then(list => { projects = list; projLoaded = true; })
+      .catch(() => toast('Could not load Jira projects', 'error'))
+      .finally(() => { projLoading = false; input._busy(false); if (document.activeElement === input) input._open(true); });
+  };
+  input.addEventListener('focus', load);
+  input.addEventListener('click', load);
+  return v => {
+    v = v.trim().toLowerCase();
+    const p = projects.find(p => p.key.toLowerCase() === v || p.name.toLowerCase() === v || projLabel(p).toLowerCase() === v);
+    return p ? p.key : '';
+  };
+}
+const DECK_NAMES = { fibonacci: 'FIBONACCI', tshirt: 'T-SHIRT SIZES', pow2: 'POWERS OF 2' };
+const deckLabel = d => DECK_NAMES[d] || String(d).toUpperCase();
 
-async function createRoom(deck, password, ownerOnlyTasks = false, ownerOnlyReveal = false) {
+async function createRoom(deck, password, ownerOnlyTasks = false, ownerOnlyReveal = false, project = '') {
   const r = await fetch('/api/rooms', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, deck, password, ownerOnlyTasks, ownerOnlyReveal }),
+    body: JSON.stringify({ clientId, deck, password, ownerOnlyTasks, ownerOnlyReveal, project }),
   });
   const { id } = await r.json();
   if (password) store.set('pw:' + id, password);
@@ -52,6 +87,15 @@ async function createRoom(deck, password, ownerOnlyTasks = false, ownerOnlyRevea
 /* ---------- room ---------- */
 let ws, S = null, myVote = null, me = null, isOwner = false, joined = false, wantJoin = false;
 let hostSig = '', lastRoundKey = '', prevRevealed = false, flipUntil = 0, tableSig = '';
+
+function roomNotFound() {
+  show('join');
+  $('#joinMsg').textContent = 'Room not found (it may have expired).';
+  $('#joinBtn').hidden = true;
+  document.querySelectorAll('#join label').forEach(l => l.hidden = true);
+  $('#newRoomBtn').hidden = false;
+  $('#newRoomBtn').onclick = () => { location.href = '/'; };
+}
 
 function initRoom() {
   $('#nameIn').value = store.get('name') || '';
@@ -88,10 +132,7 @@ function onMsg(msg) {
   if (msg.type === 'error') {
     wantJoin = false; joined = false; show('join');
     if (msg.code === 'not_found') {
-      $('#joinMsg').textContent = 'Room not found (it may have expired).';
-      $('#joinBtn').hidden = true;
-      $('#newRoomBtn').hidden = false;
-      $('#newRoomBtn').onclick = () => createRoom(config.decks[0], '');
+      roomNotFound();
     } else {
       $('#pwRow').hidden = false;
       $('#joinMsg').textContent = msg.code === 'bad_password' ? 'Wrong password.' : 'This room is password protected.';
@@ -102,11 +143,8 @@ function onMsg(msg) {
     store.set('pw:' + roomId, $('#pwIn').value);
     $('#copyBtn').hidden = false; $('#obsBtn').hidden = false; $('#nameBtn').hidden = false;
     $('#jira').hidden = !config.jira;
-  } else if (msg.type === 'jira_meta') {
-    projects = msg.projects;
-    const key = (S && S.project) || store.get('jproject');
-    if (key && projects.some(p => p.key === key)) pickProject(key, true);
-  } else if (msg.type === 'jira_fields') {
+  } else if (msg.type === 'jira_idle') setBusy(msg.op, false);
+  else if (msg.type === 'jira_fields') {
     if (msg.project !== projKey) return;
     allFields = msg.allFields; numFields = msg.fields;
     // keep the chosen estimate field only if the project has it; otherwise preselect the usual suspect
@@ -179,7 +217,7 @@ function resolveEst() {
   const f = numFields.find(f => f.id.toLowerCase() === l || f.name.toLowerCase() === l);
   return f ? f.id : v;
 }
-const setExtra = list => send({ type: 'set_extra', extra: list });
+const setExtra = list => sendJira({ type: 'set_extra', extra: list });
 
 /* themed dropdown for text inputs (a native <datalist> can't be styled) */
 function combo(input, getItems, onPick) {
@@ -196,11 +234,15 @@ function combo(input, getItems, onPick) {
     const all = getItems();
     items = all.filter(it => !q || (it.label + ' ' + it.id + ' ' + (it.tags || []).join(' ')).toLowerCase().includes(q)).slice(0, 60);
     active = items.length ? 0 : -1;
-    list.innerHTML = items.length ? items.map((it, i) =>
+    list.innerHTML = getItems.loading ? '<div class="none">Loading…</div>' : items.length ? items.map((it, i) =>
       `<div class="opt" data-i="${i}"><span class="lbl">${esc(it.label)}</span>${(it.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>`).join('')
       : `<div class="none">${esc(all.length ? 'Nothing found' : (getItems.empty || 'Nothing to choose from'))}</div>`;
     list.hidden = false; mark();
   }
+  input._open = open;
+  // small spinner at the right edge of the field while its data is being fetched
+  const spin = document.createElement('span'); spin.className = 'spin'; spin.hidden = true; wrap.append(spin);
+  input._busy = on => { spin.hidden = !on; wrap.classList.toggle('busy', on); };
   list.onmousedown = e => { e.preventDefault(); const o = e.target.closest('.opt'); if (o) pick(+o.dataset.i); };
   input.addEventListener('focus', () => { open(true); input.select(); });
   input.addEventListener('input', () => open());
@@ -233,35 +275,48 @@ const setCfgFolded = f => { $('#jira').classList.toggle('folded', f); $('#cfgTog
 $('#cfgToggle').onclick = () => setCfgFolded(!$('#jira').classList.contains('folded'));
 setCfgFolded(false);
 
-/* Jira metadata is fetched lazily, on the owner's first interaction with the Jira settings */
-let metaAsked = false;
-function ensureMeta() { if (metaAsked || !isOwner || !config.jira) return; metaAsked = true; send({ type: 'jira_meta' }); }
-$('#jiraCfg').addEventListener('focusin', ensureMeta);
-$('#jiraCfg').addEventListener('pointerdown', ensureMeta);
 const projLabel = p => `${p.name} (${p.key})`;
-combo($('#projectSel'), () => projects.map(p => ({ id: p.key, label: projLabel(p) })), it => pickProject(it.id));
-$('#projectSel').addEventListener('change', e => {
-  const v = e.target.value.trim().toLowerCase();
-  const p = projects.find(p => p.key.toLowerCase() === v || p.name.toLowerCase() === v || projLabel(p).toLowerCase() === v);
-  if (p) { if (p.key !== projKey) pickProject(p.key); else e.target.value = projLabel(p); }
-  else { const cur = projects.find(p => p.key === projKey); e.target.value = cur ? projLabel(cur) : ''; }
-});
-function pickProject(key, restore) {
-  const p = projects.find(p => p.key === key);
-  projKey = key; $('#projectSel').value = p ? projLabel(p) : key; store.set('jproject', key);
-  allFields = []; numFields = [];
-  if (!key) return;
-  send({ type: 'jira_project', key });
-  if (!restore || !$('#jqlIn').value.trim()) $('#jqlIn').value = defaultJql(key);
+/* the host can change the project in Room settings; everyone's session then loads the new project's fields */
+function pickProject(key) {
+  if (projKey) {  // switching: the old query and estimate field don't apply to the new project
+    $('#jqlIn').value = defaultJql(key); estId = ''; $('#fieldIn').value = '';
+  }
+  projKey = key; allFields = []; numFields = [];
+  sendJira({ type: 'jira_project', key });
 }
+const roomProj = $('#roomProj');
+const resolveRoomProj = projectCombo(roomProj, it => { if (it.id !== (S && S.project)) send({ type: 'set_project', key: it.id }); });
+// typing the exact key / name also works; anything else is reverted on blur
+roomProj.addEventListener('input', () => { const k = resolveRoomProj(roomProj.value); if (k && k !== (S && S.project)) send({ type: 'set_project', key: k }); });
+roomProj.addEventListener('blur', () => setRoomProjValue());
+function setRoomProjValue() {
+  const p = projects.find(p => p.key === (S && S.project));
+  roomProj.value = S && S.project ? (p ? projLabel(p) : S.project) : '';
+}
+/* spinner for requests the server answers from Jira; the server confirms with jira_idle */
+const busyOps = new Set();
+function setBusy(op, on) {
+  on ? busyOps.add(op) : busyOps.delete(op);
+  const b = o => busyOps.has(o);
+  for (const [btn, o] of [['#loadBtn', 'jira_load'], ['#addBtn', 'jira_add'], ['#pushBtn', 'jira_push']]) {
+    $(btn).disabled = b(o); $(btn).classList.toggle('loading', b(o));
+  }
+  $('#fieldIn')._busy(b('jira_project'));
+  $('#extraIn')._busy(b('jira_project') || b('set_extra'));
+}
+function sendJira(o) { if (ws && ws.readyState === 1) setBusy(o.type, true); send(o); }
 $('#loadBtn').onclick = () => {
   const jql = $('#jqlIn').value.trim(), field = resolveEst();
   store.set('jql', jql); store.set('jfield', field);
-  send({ type: 'jira_load', jql, field, project: projKey });
+  sendJira({ type: 'jira_load', jql, field });
+};
+$('#addBtn').onclick = async () => {
+  const link = await ask('Link to a Jira issue (or its key)');
+  if (link && link.trim()) sendJira({ type: 'jira_add', link: link.trim() });
 };
 $('#jqlIn').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#loadBtn').click(); };
 $('#pushVal').addEventListener('input', e => { e.target.value = e.target.value.replace(/[^0-9.,]/g, ''); });
-$('#pushBtn').onclick = () => send({ type: 'jira_push', value: $('#pushVal').value });
+$('#pushBtn').onclick = () => sendJira({ type: 'jira_push', value: $('#pushVal').value });
 
 /* ---------- throwing emoji at colleagues ---------- */
 const EMOJI = ['🍅', '👋', '⏰', '🎈', '🎉', '🚀', '🐢', '💤', '❤️', '👀'];
@@ -347,13 +402,13 @@ function render() {
   isOwner = !!(mine && mine.host);
   $('#roomMenu').hidden = !isOwner;
   $('#cfgBox').hidden = !(isOwner && config.jira);
-  $('#loadBtn').hidden = !(isOwner && config.jira);
+  $('#loadRow').hidden = !(isOwner && config.jira);
   const hl = S.users.map(u => `<li><span>${esc(u.name)}${u.id === me ? ' (you)' : ''}</span>${u.host ? `<small>host</small>${u.id === S.ownerId ? '' : `<button type="button" data-act="remove_host" data-id="${esc(u.id)}">Remove host</button>`}` : `<button type="button" data-act="make_host" data-id="${esc(u.id)}">Make host</button>`}</li>`).join('');
   if (hl !== hostSig) { hostSig = hl; $('#hostList').innerHTML = hl; }
   // task
   const t = S.task;
   $('#taskView').innerHTML = !t ? '<small>No task selected — pick one from the Jira list</small>'
-    : t.key ? `<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.key)}</a> ${esc(t.summary)} <small>${esc(t.status)}</small>`
+    : t.key ? `${t.notFound ? `<b>${esc(t.key)}</b>` : `<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.key)}</a>`} ${esc(t.summary)} <small>${esc(t.status)}</small>`
       : esc(t.title || '');
   $('#reporter').hidden = !(t && t.reporter);
   $('#reporter').innerHTML = t && t.reporter ? `Reporter: <b>${esc(t.reporter)}</b>` : '';
@@ -367,9 +422,10 @@ function render() {
   if (t && t.key) {
     const nc = d && d.comments ? d.comments.length : 0;
     $('#descSum').textContent = 'More' + (d && !d.error ? ` (${nc} comment${nc === 1 ? '' : 's'})` : '');
-    $('#descBody').innerHTML = !d ? '<small>Loading…</small>' : d.error ? `<p class="err">${esc(d.error)}</p>` :
+    const nfLink = t.notFound && t.url ? `<p><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.url)}</a></p>` : '';
+    $('#descBody').innerHTML = nfLink + (!d ? '<span class="spin"></span>' : d.error ? `<p class="err">${esc(d.error)}</p>` :
       `<div class="desc">${d.description ? esc(d.description) : '<small>No description</small>'}</div>` +
-      d.comments.map(c => `<div class="comment"><div class="chead"><b>${esc(c.author)}</b> <small>${esc(new Date(c.created).toLocaleString())}</small></div><div class="desc">${esc(c.body)}</div></div>`).join('');
+      d.comments.map(c => `<div class="comment"><div class="chead"><b>${esc(c.author)}</b> <small>${esc(new Date(c.created).toLocaleString())}</small></div><div class="desc">${esc(c.body)}</div></div>`).join(''));
   }
   if (d && d.extra) {
     const xs = [...d.extra.filter(x => x.value), ...d.extra.filter(x => !x.value)];
@@ -426,13 +482,14 @@ function render() {
   }
 
   // jira list
-  if (isOwner && !projects.length && !metaAsked && S.project && document.activeElement !== $('#projectSel')) $('#projectSel').value = S.project;
-  if (isOwner && projects.length && !projKey && (S.project || store.get('jproject'))) pickProject(S.project || store.get('jproject'), true);
-  if (!$('#jqlIn').value && document.activeElement !== $('#jqlIn')) $('#jqlIn').value = S.jql || store.get('jql') || (projKey ? defaultJql(projKey) : '');
+  $('#roomProjRow').hidden = !config.jira;
+  if (document.activeElement !== roomProj) setRoomProjValue();
+  if (isOwner && config.jira && S.project && S.project !== projKey) pickProject(S.project);
+  if (!$('#jqlIn').value && document.activeElement !== $('#jqlIn')) $('#jqlIn').value = S.jql || (S.project ? defaultJql(S.project) : store.get('jql') || '');
   if (!estId && document.activeElement !== $('#fieldIn')) setEst(S.field || store.get('jfield') || '');
   $('#taskList').innerHTML = (!S.tasks.length && !isOwner ? '<li class="empty">No host has loaded any issues yet</li>' : '') + S.tasks.map(x => `
-    <li data-k="${esc(x.key)}" class="${t && t.key === x.key ? 'cur' : ''}">
-      ${x.estimate != null ? `<span class="est">${esc(x.estimate)}</span>` : ''}
+    <li data-k="${esc(x.key)}" class="${t && t.key === x.key ? 'cur' : ''}${x.manual ? ' has-manual' : ''}">
+      ${x.manual ? '<span class="manual" title="Added manually">✋</span>' : ''}${x.estimate != null ? `<span class="est">${esc(x.estimate)}</span>` : ''}
       <span class="k">${esc(x.key)}</span> <span class="st">${esc(x.status)}</span><br>${esc(x.summary)}
     </li>`).join('');
   const locked = !!S.ownerOnlyTasks && !isOwner;

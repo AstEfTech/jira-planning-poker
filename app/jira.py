@@ -122,19 +122,27 @@ async def search(jql: str, field: str) -> list[dict]:
     path = "/rest/api/2/search" if c["server"] else "/rest/api/3/search/jql"
     body = {"jql": jql, "fields": ["summary", "status", "reporter", *([field] if field else [])], "maxResults": 100}
     r = await _call("POST", path, json=body)
-    out = []
-    for i in r.json().get("issues", []):
-        f = i["fields"]
-        est = f.get(field) if field else None
-        out.append({
-            "key": i["key"],
-            "summary": f.get("summary", ""),
-            "status": (f.get("status") or {}).get("name", ""),
-            "reporter": value_text(f.get("reporter")),
-            "estimate": est if isinstance(est, (int, float, str)) else None,
-            "url": f"{c['base']}/browse/{i['key']}",
-        })
-    return out
+    return [_task(i, field) for i in r.json().get("issues", [])]
+
+
+def _task(i: dict, field: str) -> dict:
+    f = i["fields"]
+    est = f.get(field) if field else None
+    return {
+        "key": i["key"],
+        "summary": f.get("summary", ""),
+        "status": (f.get("status") or {}).get("name", ""),
+        "reporter": value_text(f.get("reporter")),
+        "estimate": est if isinstance(est, (int, float, str)) else None,
+        "url": f"{cfg()['base']}/browse/{i['key']}",
+    }
+
+
+async def issue(key: str, field: str) -> dict:
+    """A single issue in the same shape as the search results."""
+    flds = ",".join(["summary", "status", "reporter", *([field] if field else [])])
+    r = await _call("GET", f"/rest/api/{_api()}/issue/{key}", params={"fields": flds})
+    return _task(r.json(), field)
 
 
 NL = chr(10)

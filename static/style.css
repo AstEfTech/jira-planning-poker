@@ -103,8 +103,13 @@ body:has(#landing:not([hidden])) { background: radial-gradient(ellipse 70% 45% a
 .cfghead:hover:not(:disabled) { color: var(--text); background: var(--accent-soft); }
 #jira:not(.folded) .cfghead { border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; }
 #jiraCfg { padding: 12px; }
-#jira > #loadBtn { margin-top: 12px; width: 100%; }
-#jira > #loadBtn + .tasks { margin-top: 12px; }
+.loadrow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; width: 100%; align-self: stretch; justify-items: stretch; }
+.loadrow[hidden] { display: none; }
+.loadrow button { width: 100%; min-width: 0; margin: 0; box-sizing: border-box; height: 36px; padding: 0 12px; border-width: 1px; border-style: solid; font-size: 14px; font-weight: 600; line-height: 1; display: flex; align-items: center; justify-content: center; white-space: nowrap; }
+.tasks li { position: relative; }
+.tasks .manual { position: absolute; top: 4px; right: 6px; font-size: 12px; line-height: 1; cursor: help; }
+.tasks li.has-manual .est { margin-right: 18px; }
+.loadrow + .tasks { margin-top: 12px; }
 #jiraCfg input, #jiraCfg textarea { background: var(--panel); }
 .err { color: var(--err); margin: 0; font-size: 14px; }
 .err:empty { display: none; }
@@ -159,9 +164,10 @@ body:has(#landing:not([hidden])) { background: radial-gradient(ellipse 70% 45% a
 .tablewrap { position: relative; margin-bottom: 16px; }
 /* desktop: the board absorbs height changes (e.g. expanding "More") instead of being pushed down */
 @media (min-width: 861px) {
+  #room { padding-bottom: 170px; }  /* room for the fixed deck bar when the page scrolls */
   .col { display: flex; flex-direction: column; height: max(600px, calc(100vh - 235px)); }
   .col > * { flex: 0 0 auto; }
-  .col > .tablewrap { flex: 1 1 auto; min-height: 240px; display: flex; }
+  .col > .tablewrap { flex: 1 1 auto; min-height: 120px; display: flex; }
   .tablewrap > .table { flex: 1 1 auto; min-height: 0; }
 }
 #countdown { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; border-radius: 20px; background: rgba(10, 12, 24, .45); backdrop-filter: blur(2px); pointer-events: none; }
@@ -214,6 +220,8 @@ body:has(#landing:not([hidden])) { background: radial-gradient(ellipse 70% 45% a
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); max-width: 340px; font-size: 14px; }
 .toast.ok { border-left-color: var(--ok); }
 .toast.error { border-left-color: var(--err); }
+.toast.warn { border-left-color: #e5a50a; background: #fff6d6; color: #5c4400; }
+:root[data-theme="dark"] .toast.warn { background: #3a3012; color: #ffe08a; }
 
 /* task details */
 .fold { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
@@ -222,7 +230,7 @@ body:has(#landing:not([hidden])) { background: radial-gradient(ellipse 70% 45% a
 .foldcols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: stretch; }
 .foldcols:has(#extraBox[hidden]) { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 700px) { .foldcols { grid-template-columns: minmax(0, 1fr); } }
-.foldbody { padding: 12px; max-height: 45vh; overflow: auto; margin: 0; font-size: 14px; }
+.foldbody { padding: 12px; max-height: 22vh; overflow: auto; margin: 0; font-size: 14px; }
 .desc { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .comment { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .chead { margin-bottom: 4px; }
@@ -231,7 +239,7 @@ body:has(#landing:not([hidden])) { background: radial-gradient(ellipse 70% 45% a
 .taskinfo > .fold { margin-top: 0; }
 .extrabox { border-left: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0; }
 @media (max-width: 700px) { .extrabox { border-left: none; border-top: 1px solid var(--border); } }
-.extra { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 12px; overflow: auto; max-height: 30vh; min-width: 0; font-size: 14px; }
+.extra { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 12px; overflow: auto; max-height: 15vh; min-width: 0; font-size: 14px; }
 .extra:empty { display: none; }
 .ef.empty { opacity: .5; }
 .ef.empty .efh { font-weight: 500; }
@@ -360,3 +368,13 @@ select option { background: var(--panel); color: var(--text); }
 .hostlist li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hostlist button { padding: 3px 8px; font-size: 12px; }
 .hostlist small { color: var(--ok); margin-left: auto; }
+
+/* loading indicators */
+.spin { display: inline-block; width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.busy { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.lbltxt { display: block; white-space: nowrap; }
+input.sel { text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.combo > .spin { position: absolute; right: 12px; top: 50%; margin-top: -7px; pointer-events: none; }
+.combo.busy input { padding-right: 34px; }
+button.loading::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; opacity: .8; animation: spin .7s linear infinite; }

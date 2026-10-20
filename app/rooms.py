@@ -134,8 +134,8 @@ class Room:
 rooms: dict[str, Room] = {}
 
 
-def create_room(owner_cid: str, deck: str, password: str, owner_tasks: bool = False, owner_reveal: bool = False) -> Room:
-    room = Room(id=str(uuid.uuid4()), owner_cid=owner_cid, deck=deck if deck in DECKS else "fibonacci", owner_tasks=owner_tasks, owner_reveal=owner_reveal)
+def create_room(owner_cid: str, deck: str, password: str, owner_tasks: bool = False, owner_reveal: bool = False, project: str = "") -> Room:
+    room = Room(id=str(uuid.uuid4()), owner_cid=owner_cid, deck=deck if deck in DECKS else "fibonacci", owner_tasks=owner_tasks, owner_reveal=owner_reveal, project=project)
     room.set_password(password)
     rooms[room.id] = room
     return room

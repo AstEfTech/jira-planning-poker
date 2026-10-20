@@ -6,7 +6,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -15,6 +15,8 @@ from . import jira
 from .rooms import DECKS, User, create_room, gc_loop, rooms
 
 FIELD_RE = re.compile(r"[\w-]{1,100}")
+ISSUE_RE = re.compile(r"[A-Z][A-Z0-9_]*-\d+")
+LINK_KEY_RE = re.compile(r"(?:/browse/|selectedIssue=)([A-Za-z][A-Za-z0-9_]*-\d+)")
 EMOJI = {"🍅", "👋", "⏰", "🎈", "🎉", "🚀", "🐢", "💤", "❤️", "👀"}
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -36,6 +38,7 @@ class NewRoom(BaseModel):
     password: str = ""
     ownerOnlyTasks: bool = False
     ownerOnlyReveal: bool = False
+    project: str = ""
 
 
 @app.get("/")
@@ -49,9 +52,29 @@ async def config():
     return {"decks": list(DECKS), "jira": jira.enabled()}
 
 
+@app.get("/api/projects")
+async def projects():
+    if not jira.enabled():
+        return []
+    try:
+        return await jira.projects()
+    except jira.JiraError:
+        return []
+
+
 @app.post("/api/rooms")
 async def new_room(body: NewRoom):
-    return {"id": create_room(body.clientId, body.deck, body.password, body.ownerOnlyTasks, body.ownerOnlyReveal).id}
+    project = body.project.strip() if jira.enabled() and FIELD_RE.fullmatch(body.project.strip()) else ""
+    return {"id": create_room(body.clientId, body.deck, body.password, body.ownerOnlyTasks, body.ownerOnlyReveal, project).id}
+
+
+def issue_key(link: str) -> str:
+    """Issue key from a Jira link (/browse/ABC-1, ?selectedIssue=ABC-1) or a bare key."""
+    link = link.strip()[:500]
+    m = LINK_KEY_RE.search(link)
+    if m:
+        return m.group(1).upper()
+    return link.upper() if ISSUE_RE.fullmatch(link.upper()) else ""
 
 
 async def toast(ws: WebSocket, text: str, level: str = "info"):
@@ -94,6 +117,8 @@ async def ws_endpoint(ws: WebSocket, room_id: str):
                 await handle(room, user, ws, msg)
             except jira.JiraError as e:
                 await toast(ws, str(e), "error")
+            if msg.get("type") in ("jira_project", "jira_load", "jira_add", "jira_push", "set_extra"):
+                await ws.send_json({"type": "jira_idle", "op": msg["type"]})  # lets the client stop its spinner
             await room.broadcast()
     except WebSocketDisconnect:
         pass
@@ -174,8 +199,14 @@ async def handle(room, user, ws, m):
     elif t == "set_password" and is_owner:
         room.set_password(str(m.get("password", ""))[:100])
         await toast(ws, "Password set" if room.pw_hash else "Password removed", "ok")
-    elif t == "jira_meta" and is_owner and jira.enabled():
-        await ws.send_json({"type": "jira_meta", "projects": await jira.projects()})
+    elif t == "set_project" and is_owner and jira.enabled():
+        key = str(m.get("key", "")).strip()
+        if not FIELD_RE.fullmatch(key) or key == room.project:
+            return
+        # issues, query and estimate field belong to the old project
+        room.project, room.jql, room.est_field = key, "", ""
+        room.tasks, room.task = [], None
+        room.new_round()
     elif t == "jira_project" and is_owner and jira.enabled():
         key = str(m.get("key", "")).strip()
         if not FIELD_RE.fullmatch(key):
@@ -185,16 +216,37 @@ async def handle(room, user, ws, m):
     elif t == "jira_load" and is_owner and jira.enabled():
         jql = str(m.get("jql", "")).strip()[:2000]
         field = str(m.get("field", "")).strip()
-        project = str(m.get("project", "")).strip()
         if not jql:
-            return await toast(ws, "Enter a JQL query or pick a project", "error")
+            return await toast(ws, "Enter a JQL query", "error")
         if field and not FIELD_RE.fullmatch(field):
             return await toast(ws, "Invalid estimate field id (expected e.g. customfield_10016)", "error")
-        room.tasks = await jira.search(jql, field)
+        found = await jira.search(jql, field)
+        found_keys = {x["key"] for x in found}
+        room.tasks = found + [x for x in room.tasks if x.get("manual") and x["key"] not in found_keys]  # keep hand-picked ones
         room.jql, room.est_field = jql, field
-        room.project = project if FIELD_RE.fullmatch(project) else ""
         await load_details(room)
         await toast(ws, f"Loaded {len(room.tasks)} issues", "ok")
+    elif t == "jira_add" and is_owner and jira.enabled():
+        key = issue_key(str(m.get("link", "")))
+        if not key:
+            return await toast(ws, "Could not find an issue key (e.g. ABC-123) in the link", "error")
+        link = str(m.get("link", "")).strip()[:500]
+        try:
+            issue = await jira.issue(key, room.est_field)
+        except jira.JiraError as e:
+            # keep the task anyway with what we know: its key and (if a link was sent) the link
+            issue = {"key": key, "summary": "", "status": "", "reporter": "", "estimate": None,
+                     "url": link if link.lower().startswith(("http://", "https://")) else "",
+                     "notFound": True}
+            await toast(ws, f"{key} was not found in Jira ({e}), but it was added anyway", "warn")
+        issue["manual"] = True
+        existing = next((i for i, x in enumerate(room.tasks) if x["key"] == issue["key"]), None)
+        if existing is None:
+            room.tasks.append(issue)
+        else:
+            room.tasks[existing] = issue
+        if not issue.get("notFound"):
+            await toast(ws, f"{issue['key']} added", "ok")
     elif t == "set_extra" and is_owner and jira.enabled():
         room.extra = list(dict.fromkeys(x for x in map(str, m.get("extra") or []) if FIELD_RE.fullmatch(x)))[:20]
         await load_details(room)
@@ -209,3 +261,11 @@ async def handle(room, user, ws, m):
             if x["key"] == key:
                 x["estimate"] = saved
         await toast(ws, f"{key}: estimate {saved} saved to Jira", "ok")
+
+
+@app.get("/{path:path}")
+async def unknown_page(path: str):
+    """Unknown pages get the SPA, which shows "Room not found" with a way back to the landing page."""
+    if path.startswith(("api/", "ws/", "static/")):
+        raise HTTPException(404)
+    return FileResponse(STATIC / "index.html")

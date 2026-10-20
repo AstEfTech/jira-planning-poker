@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Planning Poker</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
 <header>
@@ -13,6 +13,9 @@
       <button id="roomMenuBtn" class="ghost" type="button">⚙ Room settings ▾</button>
       <div class="menu-pop">
         <div class="menu-body">
+          <label id="roomProjRow" hidden>Jira project
+            <input id="roomProj" placeholder="Click to pick a project…" autocomplete="off" spellcheck="false">
+          </label>
           <label>Password <small>(empty = none)</small>
             <span class="pwrow"><input id="roomPw" type="password" autocomplete="new-password" placeholder="No password"><button id="roomPwSave" type="button">Set</button></span>
           </label>
@@ -53,8 +56,11 @@
         <label>Deck
           <input id="deckSel" class="sel" readonly>
         </label>
-        <label><span>Room password <small>(optional)</small></span>
+        <label><span class="lbltxt">Room password <small>(optional)</small></span>
           <input id="landPw" type="password" autocomplete="new-password" placeholder="Leave empty for an open room">
+        </label>
+        <label id="landProjRow" hidden><span class="lbltxt">Jira project <small>(optional)</small></span>
+          <input id="projectSel" placeholder="Click to pick or type a project…" autocomplete="off" spellcheck="false">
         </label>
         <details class="fold roomopts">
           <summary>Room settings</summary>
@@ -75,7 +81,7 @@
     <label>Your name
       <input id="nameIn" maxlength="30" placeholder="Enter your name">
     </label>
-    <button id="newRoomBtn" class="primary" hidden>Create new room</button>
+    <button id="newRoomBtn" class="primary" hidden>Back to start page</button>
     <label id="pwRow" hidden>Room password
       <input id="pwIn" type="password">
     </label>
@@ -133,9 +139,6 @@
         <div id="cfgBox" class="cfgbox" hidden>
         <button id="cfgToggle" type="button" class="cfghead" title="Show / hide settings">⚙ Settings ▾</button>
         <div id="jiraCfg" class="form">
-          <label>Project
-            <input id="projectSel" placeholder="Pick or type a project…" autocomplete="off" spellcheck="false">
-          </label>
           <label>JQL
             <textarea id="jqlIn" rows="3" placeholder="project = ABC AND resolution = Unresolved ORDER BY Rank"></textarea>
           </label>
@@ -144,7 +147,10 @@
           </label>
         </div>
         </div>
-        <button id="loadBtn" class="primary" hidden>Load tasks</button>
+        <div id="loadRow" class="loadrow" hidden>
+          <button id="loadBtn" class="primary">Load tasks</button>
+          <button id="addBtn" type="button">＋ Add task</button>
+        </div>
         <ul id="taskList" class="tasks"></ul>
       </aside>
     </div>
@@ -167,6 +173,6 @@
   </form>
 </dialog>
 <div id="toasts"></div>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=3"></script>
 </body>
 </html>
