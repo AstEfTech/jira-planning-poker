@@ -269,7 +269,7 @@ combo($('#extraIn'), availFields, it => { $('#extraIn').value = ''; setExtra([..
 combo($('#fieldIn'), () => numFields.map(f => ({ id: f.id, label: f.name })), it => setEst(it.id));
 $('#fieldIn').addEventListener('input', () => { estId = resolveEst(); });
 
-const defaultJql = key => `project = "${key}" AND resolution = Unresolved ORDER BY Rank`;
+const defaultJql = key => config.jiraFilter || `project = "${key}" AND resolution = Unresolved ORDER BY Rank`;
 /* settings can be folded away to give the issue list more room */
 const setCfgFolded = f => { $('#jira').classList.toggle('folded', f); $('#cfgToggle').textContent = f ? '⚙ Settings ▸' : '⚙ Settings ▾'; };
 $('#cfgToggle').onclick = () => setCfgFolded(!$('#jira').classList.contains('folded'));
@@ -485,7 +485,8 @@ function render() {
   $('#roomProjRow').hidden = !config.jira;
   if (document.activeElement !== roomProj) setRoomProjValue();
   if (isOwner && config.jira && S.project && S.project !== projKey) pickProject(S.project);
-  if (!$('#jqlIn').value && document.activeElement !== $('#jqlIn')) $('#jqlIn').value = S.jql || (S.project ? defaultJql(S.project) : store.get('jql') || '');
+  $('#jqlScope').textContent = S.project ? ` (AND project = "${S.project}")` : '';
+  if (!$('#jqlIn').value && document.activeElement !== $('#jqlIn')) $('#jqlIn').value = S.jql || (S.project ? defaultJql(S.project) : config.jiraFilter || store.get('jql') || '');
   if (!estId && document.activeElement !== $('#fieldIn')) setEst(S.field || store.get('jfield') || '');
   $('#taskList').innerHTML = (!S.tasks.length && !isOwner ? '<li class="empty">No host has loaded any issues yet</li>' : '') + S.tasks.map(x => `
     <li data-k="${esc(x.key)}" class="${t && t.key === x.key ? 'cur' : ''}${x.manual ? ' has-manual' : ''}">

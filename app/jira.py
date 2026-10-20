@@ -18,6 +18,12 @@ def cfg():
     }
 
 
+def default_filter() -> str:
+    """JIRA_DEFAULT_FILTER as JQL: a bare number is a saved filter id, anything else is taken as JQL."""
+    v = os.environ.get("JIRA_DEFAULT_FILTER", "").strip()
+    return f"filter = {v}" if v.isdigit() else v
+
+
 def enabled() -> bool:
     c = cfg()
     return bool(c["base"] and c["token"])

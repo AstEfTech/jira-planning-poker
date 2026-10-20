@@ -49,7 +49,7 @@ async def index(room_id: uuid.UUID | None = None):
 
 @app.get("/api/config")
 async def config():
-    return {"decks": list(DECKS), "jira": jira.enabled()}
+    return {"decks": list(DECKS), "jira": jira.enabled(), "jiraFilter": jira.default_filter()}
 
 
 @app.get("/api/projects")
@@ -75,6 +75,19 @@ def issue_key(link: str) -> str:
     if m:
         return m.group(1).upper()
     return link.upper() if ISSUE_RE.fullmatch(link.upper()) else ""
+
+
+ORDER_BY_RE = re.compile(r"\border\s+by\b", re.I)
+
+
+def with_project(jql: str, project: str) -> str:
+    """Restrict the query to the room's project whatever the JQL / saved filter says; ORDER BY stays at the end."""
+    if not project:
+        return jql
+    m = ORDER_BY_RE.search(jql)
+    cond, order = (jql[:m.start()], " " + jql[m.start():]) if m else (jql, "")
+    cond = cond.strip()
+    return f'project = "{project}"' + (f" AND ({cond})" if cond else "") + order
 
 
 async def toast(ws: WebSocket, text: str, level: str = "info"):
@@ -220,7 +233,7 @@ async def handle(room, user, ws, m):
             return await toast(ws, "Enter a JQL query", "error")
         if field and not FIELD_RE.fullmatch(field):
             return await toast(ws, "Invalid estimate field id (expected e.g. customfield_10016)", "error")
-        found = await jira.search(jql, field)
+        found = await jira.search(with_project(jql, room.project), field)
         found_keys = {x["key"] for x in found}
         room.tasks = found + [x for x in room.tasks if x.get("manual") and x["key"] not in found_keys]  # keep hand-picked ones
         room.jql, room.est_field = jql, field

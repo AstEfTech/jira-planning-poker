@@ -139,7 +139,7 @@
         <div id="cfgBox" class="cfgbox" hidden>
         <button id="cfgToggle" type="button" class="cfghead" title="Show / hide settings">⚙ Settings ▾</button>
         <div id="jiraCfg" class="form">
-          <label>JQL
+          <label><span>JQL<span id="jqlScope"></span></span>
             <textarea id="jqlIn" rows="3" placeholder="project = ABC AND resolution = Unresolved ORDER BY Rank"></textarea>
           </label>
           <label>Estimate field
@@ -173,6 +173,6 @@
   </form>
 </dialog>
 <div id="toasts"></div>
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=5"></script>
 </body>
 </html>
