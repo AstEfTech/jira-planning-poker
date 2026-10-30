@@ -75,17 +75,22 @@ const DECK_NAMES = { fibonacci: 'FIBONACCI', tshirt: 'T-SHIRT SIZES', pow2: 'POW
 const deckLabel = d => DECK_NAMES[d] || String(d).toUpperCase();
 
 async function createRoom(deck, password, ownerOnlyTasks = false, ownerOnlyReveal = false, project = '') {
-  const r = await fetch('/api/rooms', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, deck, password, ownerOnlyTasks, ownerOnlyReveal, project }),
-  });
-  const { id } = await r.json();
-  if (password) store.set('pw:' + id, password);
-  location.href = '/' + id;
+  try {
+    const r = await fetch('/api/rooms', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, deck, password, ownerOnlyTasks, ownerOnlyReveal, project }),
+    });
+    if (!r.ok) throw new Error();
+    const { id } = await r.json();
+    if (password) store.set('pw:' + id, password);
+    location.href = '/' + id;
+  } catch { toast('Could not create the room, try again', 'error'); }
 }
 
 /* ---------- room ---------- */
 let ws, S = null, myVote = null, me = null, isOwner = false, joined = false, wantJoin = false;
+let descSig = '', extraSig = '', deckSig = '', listSig = '';
+let viewKey = null, curKey = null, viewDetails = {};  // viewKey: a task this user looks at without it being estimated
 let hostSig = '', lastRoundKey = '', prevRevealed = false, flipUntil = 0, tableSig = '';
 
 function roomNotFound() {
@@ -152,6 +157,10 @@ function onMsg(msg) {
       const sp = numFields.find(f => /story point/i.test(f.name));
       setEst(sp ? sp.id : '');
     } else setEst(estId);
+  } else if (msg.type === 'details') {
+    viewDetails[msg.key] = msg.details; if (S) render();
+  } else if (msg.type === 'details_stale') {
+    if (viewKey) { delete viewDetails[viewKey]; send({ type: 'view', key: viewKey }); }
   } else if (msg.type === 'state') {
     S = msg.room; me = msg.me; myVote = msg.myVote; render();
   } else if (msg.type === 'countdown') startCountdown(msg.n, msg.ms);
@@ -405,31 +414,42 @@ function render() {
   $('#loadRow').hidden = !(isOwner && config.jira);
   const hl = S.users.map(u => `<li><span>${esc(u.name)}${u.id === me ? ' (you)' : ''}</span>${u.host ? `<small>host</small>${u.id === S.ownerId ? '' : `<button type="button" data-act="remove_host" data-id="${esc(u.id)}">Remove host</button>`}` : `<button type="button" data-act="make_host" data-id="${esc(u.id)}">Make host</button>`}</li>`).join('');
   if (hl !== hostSig) { hostSig = hl; $('#hostList').innerHTML = hl; }
-  // task
+  // task: the one being estimated (t) and the one this user is looking at (vt) are separate things
   const t = S.task;
-  $('#taskView').innerHTML = !t ? '<small>No task selected — pick one from the Jira list</small>'
-    : t.key ? `${t.notFound ? `<b>${esc(t.key)}</b>` : `<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.key)}</a>`} ${esc(t.summary)} <small>${esc(t.status)}</small>`
-      : esc(t.title || '');
-  $('#reporter').hidden = !(t && t.reporter);
-  $('#reporter').innerHTML = t && t.reporter ? `Reporter: <b>${esc(t.reporter)}</b>` : '';
+  if ((t && t.key) !== curKey) { curKey = t && t.key; viewKey = null; }  // the host moved on: everyone follows
+  let vt = t;
+  if (viewKey && viewKey !== curKey) {
+    vt = S.tasks.find(x => x.key === viewKey);
+    if (!vt) { viewKey = null; vt = t; }
+  } else viewKey = null;
+  const viewing = vt !== t;
+  const locked = !!S.ownerOnlyTasks && !isOwner;
+  $('#taskView').innerHTML = !vt ? '<small>No task selected — pick one from the Jira list</small>'
+    : vt.key ? `${vt.notFound ? `<b>${esc(vt.key)}</b>` : `<a href="${esc(vt.url)}" target="_blank" rel="noopener">${esc(vt.key)}</a>`} ${esc(vt.summary)} <small>${esc(vt.status)}</small>${viewing ? '' : ' <span class="badge">In estimation</span>'}`
+      : esc(vt.title || '');
+  $('#reporter').hidden = !(vt && vt.reporter);
+  $('#reporter').innerHTML = vt && vt.reporter ? `Reporter: <b>${esc(vt.reporter)}</b>` : '';
 
-  // description / comments / extra fields
-  const d = t && t.details;
-  $('#taskInfo').hidden = !(t && t.key);
-  const canAdd = !!(isOwner && config.jira && t && t.key);
+  // description / comments / extra fields (formatting comes from Jira, sanitized by the server)
+  const d = viewing ? viewDetails[vt.key] : t && t.details;
+  $('#taskInfo').hidden = !(vt && vt.key);
+  const canAdd = !!(isOwner && config.jira && vt && vt.key);
   $('#addField').hidden = !canAdd;
   $('#extraBox').hidden = !canAdd && !(d && d.extra && d.extra.length);
-  if (t && t.key) {
+  if (vt && vt.key) {
     const nc = d && d.comments ? d.comments.length : 0;
     $('#descSum').textContent = 'More' + (d && !d.error ? ` (${nc} comment${nc === 1 ? '' : 's'})` : '');
-    const nfLink = t.notFound && t.url ? `<p><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.url)}</a></p>` : '';
-    $('#descBody').innerHTML = nfLink + (!d ? '<span class="spin"></span>' : d.error ? `<p class="err">${esc(d.error)}</p>` :
-      `<div class="desc">${d.description ? esc(d.description) : '<small>No description</small>'}</div>` +
-      d.comments.map(c => `<div class="comment"><div class="chead"><b>${esc(c.author)}</b> <small>${esc(new Date(c.created).toLocaleString())}</small></div><div class="desc">${esc(c.body)}</div></div>`).join(''));
+    const nfLink = vt.notFound && vt.url ? `<p><a href="${esc(vt.url)}" target="_blank" rel="noopener">${esc(vt.url)}</a></p>` : '';
+    const descHtml = nfLink + (!d ? '<span class="spin"></span>' : d.error ? `<p class="err">${esc(d.error)}</p>` :
+      `<div class="desc">${d.description || '<small>No description</small>'}</div>` +
+      d.comments.map(c => `<div class="comment"><div class="chead"><b>${esc(c.author)}</b> <small>${esc(new Date(c.created).toLocaleString())}</small></div><div class="desc">${c.body}</div></div>`).join(''));
+    // rewrite only on real changes, otherwise every vote in the room would scroll the description back to the top
+    if (descHtml !== descSig) { descSig = descHtml; $('#descBody').innerHTML = descHtml; }
   }
-  if (d && d.extra) {
-    const xs = [...d.extra.filter(x => x.value), ...d.extra.filter(x => !x.value)];
-    $('#extraBody').innerHTML = xs.map(x => `<div class="ef${x.value ? '' : ' empty'}"><div class="efh"><span>${esc(x.name)}</span>${isOwner ? `<button type="button" data-id="${esc(x.id)}" title="Hide this field">×</button>` : ''}</div>${x.value ? `<div class="efv">${esc(x.value)}</div>` : ''}</div>`).join('');
+  const xs = d && d.extra ? [...d.extra.filter(x => x.value), ...d.extra.filter(x => !x.value)] : [];
+  const extraHtml = xs.map(x => `<div class="ef${x.value ? '' : ' empty'}"><div class="efh"><span>${esc(x.name)}</span>${isOwner ? `<button type="button" data-id="${esc(x.id)}" title="Hide this field">×</button>` : ''}</div>${x.value ? `<div class="efv">${esc(x.value)}</div>` : ''}</div>`).join('');
+  if (extraHtml !== extraSig) {  // no details yet (another task being loaded): don't keep the previous task's fields
+    extraSig = extraHtml; $('#extraBody').innerHTML = extraHtml;
     $('#extraBody').querySelectorAll('button').forEach(b => b.onclick = () => setExtra((S.extra || []).filter(x => x !== b.dataset.id)));
   }
 
@@ -461,8 +481,8 @@ function render() {
   const observer = $('#obsIn').checked;
   $('#deck').hidden = observer;
   $('#obsHint').hidden = !observer;
-  $('#deck').innerHTML = S.deck.map(c => `<button class="dcard ${c === myVote ? 'sel' : ''}" data-v="${esc(c)}">${esc(c)}</button>`).join('');
-  $('#deck').querySelectorAll('button').forEach(b => b.onclick = () => send({ type: 'vote', value: b.dataset.v === myVote ? null : b.dataset.v }));
+  const deckHtml = S.deck.map(c => `<button class="dcard ${c === myVote ? 'sel' : ''}" data-v="${esc(c)}">${esc(c)}</button>`).join('');
+  if (deckHtml !== deckSig) { deckSig = deckHtml; $('#deck').innerHTML = deckHtml; }  // keeps hover animations from restarting on others' votes
 
   // results
   const st = S.revealed ? stats() : null;
@@ -473,7 +493,7 @@ function render() {
 
   // push box
   const roundKey = (t && (t.key || t.title) || '') + '|' + S.revealed;
-  const canPush = isOwner && config.jira && t && t.key;
+  const canPush = isOwner && config.jira && t && t.key && !viewing;
   $('#pushBox').hidden = !canPush;
   $('#pushLbl').textContent = S.field ? '→ ' + (fieldName(S.field) || S.field) : 'set the estimate field first';
   if (roundKey !== lastRoundKey) {
@@ -488,13 +508,23 @@ function render() {
   $('#jqlScope').textContent = S.project ? ` (AND project = "${S.project}")` : '';
   if (!$('#jqlIn').value && document.activeElement !== $('#jqlIn')) $('#jqlIn').value = S.jql || (S.project ? defaultJql(S.project) : config.jiraFilter || store.get('jql') || '');
   if (!estId && document.activeElement !== $('#fieldIn')) setEst(S.field || store.get('jfield') || '');
-  $('#taskList').innerHTML = (!S.tasks.length && !isOwner ? '<li class="empty">No host has loaded any issues yet</li>' : '') + S.tasks.map(x => `
-    <li data-k="${esc(x.key)}" class="${t && t.key === x.key ? 'cur' : ''}${x.manual ? ' has-manual' : ''}">
-      ${x.manual ? '<span class="manual" title="Added manually">✋</span>' : ''}${x.estimate != null ? `<span class="est">${esc(x.estimate)}</span>` : ''}
+  const listHtml = (!S.tasks.length && !isOwner ? '<li class="empty">No host has loaded any issues yet</li>' : '') + S.tasks.map(x => `
+    <li data-k="${esc(x.key)}" class="${t && t.key === x.key ? 'cur' : ''}${vt && vt.key === x.key ? ' viewed' : ''}${x.manual ? ' has-manual' : ''}">
+      ${t && t.key === x.key ? '<div class="badge">In estimation</div>' : ''}
+      ${x.manual ? '<span class="manual" title="Added manually">✋</span>' : ''}${x.estimate != null ? `<span class="est">${esc(x.estimate)}</span>` : ''}${!locked && !(t && t.key === x.key) ? '<button type="button" class="mini" data-start title="Start estimating this task">Estimate</button>' : ''}
       <span class="k">${esc(x.key)}</span> <span class="st">${esc(x.status)}</span><br>${esc(x.summary)}
     </li>`).join('');
-  const locked = !!S.ownerOnlyTasks && !isOwner;
-  $('#taskList').classList.toggle('locked', locked);
-  $('#taskList').title = locked ? 'Only a host can switch tasks' : '';
-  $('#taskList').querySelectorAll('li[data-k]').forEach(li => li.onclick = () => { if (!locked) send({ type: 'task', key: li.dataset.k }); });
+  if (listHtml !== listSig) { listSig = listHtml; $('#taskList').innerHTML = listHtml; }
 }
+$('#deck').onclick = e => {
+  const b = e.target.closest('button[data-v]');
+  if (b) send({ type: 'vote', value: b.dataset.v === myVote ? null : b.dataset.v });
+};
+$('#taskList').onclick = e => {
+  const li = e.target.closest('li[data-k]');
+  if (!li) return;
+  if (e.target.closest('[data-start]')) return send({ type: 'task', key: li.dataset.k });
+  viewKey = li.dataset.k === curKey ? null : li.dataset.k;  // clicking only looks at a task; estimating is switched separately
+  if (viewKey) { delete viewDetails[viewKey]; send({ type: 'view', key: viewKey }); }
+  render();
+};

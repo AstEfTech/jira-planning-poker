@@ -1,5 +1,9 @@
 import asyncio
+import html
 import os
+import re
+from html.parser import HTMLParser
+from urllib.parse import urljoin
 
 import httpx
 
@@ -197,17 +201,93 @@ def value_text(v) -> str:
     return ""
 
 
+_TAGS = {"p", "br", "hr", "b", "strong", "i", "em", "u", "s", "del", "strike", "ins", "sub", "sup", "code", "pre", "tt",
+         "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td",
+         "a", "span", "div", "dl", "dt", "dd"}
+_VOID = {"br", "hr"}
+_DROP = {"script", "style", "iframe", "object", "embed", "svg", "form", "textarea", "select", "button", "noscript"}  # with their content
+_COLOR_RE = re.compile(r"(?:^|;)\s*color\s*:\s*(#[0-9a-fA-F]{3,8}|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|[a-zA-Z]{3,20})\s*(?:;|$)")
+
+
+class _Sanitizer(HTMLParser):
+    """Keeps Jira's rendered formatting (lists, tables, code, links, colors) and nothing executable."""
+
+    def __init__(self, base: str):
+        super().__init__(convert_charrefs=True)
+        self.base, self.out, self.stack, self.skip = base, [], [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in _DROP:
+            self.skip += 1
+            return
+        if self.skip:
+            return
+        a = dict(attrs)
+        if tag == "img":  # images need Jira auth; emoticons carry their text in alt
+            alt = a.get("alt") or ""
+            self.out.append(html.escape(alt) if "emoticon" in (a.get("class") or "") and alt else "<em>[image]</em>")
+            return
+        if tag not in _TAGS:
+            return
+        extra = ""
+        if tag == "a":
+            href = urljoin(self.base + "/", (a.get("href") or "").strip())
+            if href.lower().startswith(("http://", "https://", "mailto:")):
+                extra = f' href="{html.escape(href)}" target="_blank" rel="noopener noreferrer"'
+        elif tag in ("td", "th"):
+            extra = "".join(f' {k}="{a[k]}"' for k in ("colspan", "rowspan") if (a.get(k) or "").isdigit())
+        m = _COLOR_RE.search(a.get("style") or "") if tag in ("span", "p", "td", "th", "div") else None
+        if m:
+            extra += f' style="color:{m.group(1)}"'
+        self.out.append(f"<{tag}{extra}>")
+        if tag not in _VOID:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag):
+        if tag in _DROP:
+            self.skip = max(0, self.skip - 1)
+        elif not self.skip and tag in self.stack:
+            while self.stack:
+                t = self.stack.pop()
+                self.out.append(f"</{t}>")
+                if t == tag:
+                    break
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.out.append(html.escape(data, quote=False))
+
+    def result(self) -> str:
+        self.out += [f"</{t}>" for t in reversed(self.stack)]
+        return "".join(self.out)
+
+
+def clean_html(raw: str, limit: int = 60000) -> str:
+    p = _Sanitizer(cfg()["base"])
+    p.feed(raw[:limit])
+    p.close()
+    return p.result()
+
+
+def _body_html(raw_value, rendered_html, limit: int) -> str:
+    """Jira's own rendering keeps the formatting; without it fall back to the flattened text."""
+    if rendered_html:
+        return clean_html(rendered_html)
+    return html.escape(value_text(raw_value)[:limit]).replace(NL, "<br>")
+
+
 async def issue_details(key: str, extra: list[str]) -> dict:
     flds = ",".join(["description", "comment", *extra])
-    r = await _call("GET", f"/rest/api/{_api()}/issue/{key}", params={"fields": flds, "expand": "names"})
+    r = await _call("GET", f"/rest/api/{_api()}/issue/{key}", params={"fields": flds, "expand": "names,renderedFields"})
     data = r.json()
-    f, names = data.get("fields", {}), data.get("names", {})
+    f, names, rendered = data.get("fields", {}), data.get("names", {}), data.get("renderedFields") or {}
     comments = (f.get("comment") or {}).get("comments", [])
+    rbody = {c.get("id"): c.get("body") for c in (rendered.get("comment") or {}).get("comments", [])}
     return {
-        "description": value_text(f.get("description"))[:20000],
+        "description": _body_html(f.get("description"), rendered.get("description"), 20000),
         "comments": [
             {"author": (c.get("author") or {}).get("displayName", "?"), "created": c.get("created", ""),
-             "body": value_text(c.get("body"))[:3000]}
+             "body": _body_html(c.get("body"), rbody.get(c.get("id")), 3000)}
             for c in comments[-50:]
         ],
         "extra": [{"id": x, "name": names.get(x, x), "value": value_text(f.get(x))[:3000]} for x in extra],

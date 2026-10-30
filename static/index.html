@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Planning Poker</title>
-<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="stylesheet" href="/static/style.css?v=6">
 </head>
 <body>
 <header>
@@ -19,7 +19,7 @@
           <label>Password <small>(empty = none)</small>
             <span class="pwrow"><input id="roomPw" type="password" autocomplete="new-password" placeholder="No password"><button id="roomPwSave" type="button">Set</button></span>
           </label>
-          <label class="check"><input id="optTasks" type="checkbox"> Only host can switch tasks</label>
+          <label class="check"><input id="optTasks" type="checkbox"> Only host can start estimation</label>
           <label class="check"><input id="optReveal" type="checkbox"> Only host can reveal cards</label>
           <div>
             <div class="menu-sub">Hosts</div>
@@ -65,7 +65,7 @@
         <details class="fold roomopts">
           <summary>Room settings</summary>
           <div class="foldbody optsbody">
-            <label class="check"><input id="landOwn" type="checkbox"> Only host can switch tasks</label>
+            <label class="check"><input id="landOwn" type="checkbox"> Only host can start estimation</label>
             <label class="check"><input id="landRev" type="checkbox"> Only host can reveal cards</label>
           </div>
         </details>
@@ -173,6 +173,6 @@
   </form>
 </dialog>
 <div id="toasts"></div>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=8"></script>
 </body>
 </html>

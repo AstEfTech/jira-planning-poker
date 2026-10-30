@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import random
 import time
 import re
@@ -14,7 +15,8 @@ from pydantic import BaseModel
 from . import jira
 from .rooms import DECKS, User, create_room, gc_loop, rooms
 
-FIELD_RE = re.compile(r"[\w-]{1,100}")
+log = logging.getLogger("poker")
+FIELD_RE =re.compile(r"[\w-]{1,100}")
 ISSUE_RE = re.compile(r"[A-Z][A-Z0-9_]*-\d+")
 LINK_KEY_RE = re.compile(r"(?:/browse/|selectedIssue=)([A-Za-z][A-Za-z0-9_]*-\d+)")
 EMOJI = {"🍅", "👋", "⏰", "🎈", "🎉", "🚀", "🐢", "💤", "❤️", "👀"}
@@ -126,10 +128,17 @@ async def ws_endpoint(ws: WebSocket, room_id: str):
 
         while True:
             msg = await ws.receive_json()
+            if not isinstance(msg, dict):
+                continue
             try:
                 await handle(room, user, ws, msg)
             except jira.JiraError as e:
                 await toast(ws, str(e), "error")
+            except WebSocketDisconnect:
+                raise
+            except Exception:  # a bad message or an unexpected Jira reply must not drop the connection
+                log.exception("Failed to handle %r", msg.get("type"))
+                await toast(ws, "Something went wrong", "error")
             if msg.get("type") in ("jira_project", "jira_load", "jira_add", "jira_push", "set_extra"):
                 await ws.send_json({"type": "jira_idle", "op": msg["type"]})  # lets the client stop its spinner
             await room.broadcast()
@@ -190,7 +199,7 @@ async def handle(room, user, ws, m):
             user.vote = None
     elif t == "task":
         if room.owner_tasks and not is_owner:
-            return await toast(ws, "Only a host can switch tasks", "error")
+            return await toast(ws, "Only a host can start estimation", "error")
         found = next((x for x in room.tasks if x["key"] == m.get("key")), None)
         if not found:
             return
@@ -198,6 +207,15 @@ async def handle(room, user, ws, m):
         room.new_round()
         await room.broadcast()
         await load_details(room)
+    elif t == "view" and jira.enabled():
+        # anyone may read any listed issue; this goes to the asker only and doesn't touch the room's current task
+        key = m.get("key")
+        if any(x["key"] == key for x in room.tasks):
+            try:
+                details = await jira.issue_details(key, room.extra)
+            except jira.JiraError as e:
+                details = {"error": str(e)}
+            await ws.send_json({"type": "details", "key": key, "details": details})
     elif t == "make_host" and is_owner:
         target = next((u for u in room.users.values() if u.pub == m.get("to")), None)
         if target:
@@ -263,6 +281,7 @@ async def handle(room, user, ws, m):
     elif t == "set_extra" and is_owner and jira.enabled():
         room.extra = list(dict.fromkeys(x for x in map(str, m.get("extra") or []) if FIELD_RE.fullmatch(x)))[:20]
         await load_details(room)
+        await ws.send_json({"type": "details_stale"})  # the host's own viewed issue needs the new fields too
     elif t == "jira_push" and is_owner and jira.enabled():
         key = (room.task or {}).get("key")
         value = str(m.get("value", "")).strip()
