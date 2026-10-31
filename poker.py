@@ -16,6 +16,7 @@ from urllib.parse import urljoin
 
 import httpx
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -1868,4 +1869,5 @@ $('#taskList').onclick = e => {
 
 
 if __name__ == "__main__":
-    uvicorn.run("poker:app", port=8000, env_file=".env")
+    load_dotenv()
+    uvicorn.run(app, host=os.environ.get("HOST", "0.0.0.0"), port=int(os.environ.get("PORT", "8000")))

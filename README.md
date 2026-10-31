@@ -20,7 +20,7 @@ python -m pip install -r requirements.txt
 python poker.py
 ```
 
-Optional, for Jira: copy `.env.example` to `.env` and fill in the credentials.
+Optional: copy `.env.example` to `.env` to set `HOST` / `PORT` (default `0.0.0.0:8000`, open to your network) and the Jira credentials.
 
 (If `python` isn't found, try `python3`, or `py` on Windows. The venv is created and the dependencies installed once; next time just activate and start the server.)
 
