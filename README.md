@@ -2,6 +2,8 @@
 
 FastAPI + WebSocket, vanilla JS front (no build step). Rooms live in memory (a restart drops them; idle rooms are removed after 24h).
 
+![Demo](media/demo.gif)
+
 ## Run
 
 Needs Python 3. Run from the project root. Only the activation line differs by OS.
@@ -36,3 +38,13 @@ Open http://localhost:8000, create a room, share the `/<uuid>` link. Stop with `
 - Jira credentials live only on the server (`.env`). Anyone who can create a room can run JQL with them — deploy behind your VPN/SSO.
 - The room owner is the browser that created the room (identified by a random id in localStorage).
 - Run a single worker (state is in-process). Put it behind HTTPS with WebSocket proxying for production.
+
+## Demo GIF
+
+`media/make_gif.py` records `media/demo.gif` with Playwright (four players vote in a throwaway local room, Jira disabled):
+
+```
+pip install -r media/requirements.txt
+playwright install chromium
+python media/make_gif.py
+```
