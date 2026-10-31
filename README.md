@@ -17,7 +17,7 @@ Activate the venv:
 
 ```
 python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --env-file .env --port 8000
+python poker.py
 ```
 
 Optional, for Jira: copy `.env.example` to `.env` and fill in the credentials.
