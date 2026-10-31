@@ -39,10 +39,6 @@ Open http://localhost:8000, create a room, share the `/<uuid>` link. Stop with `
 - The room owner is the browser that created the room (identified by a random id in localStorage).
 - Run a single worker (state is in-process). Put it behind HTTPS with WebSocket proxying for production.
 
-## Demo GIF
-
-`media/make_gif.py` records `media/demo.gif` with Playwright (four players vote in a throwaway local room, Jira disabled):
-
 ```
 pip install -r media/requirements.txt
 playwright install chromium
